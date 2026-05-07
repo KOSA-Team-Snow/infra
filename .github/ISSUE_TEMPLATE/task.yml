@@ -1,0 +1,38 @@
+name: Task
+description: 구현, 설정, 배포 작업
+title: "[Task] "
+labels: ["type:task"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: 작업 내용
+      placeholder: 무엇을 해야 하나요?
+    validations:
+      required: true
+
+  - type: input
+    id: owner
+    attributes:
+      label: 담당
+      placeholder: "정: @username / 부: @username"
+    validations:
+      required: true
+
+  - type: textarea
+    id: done
+    attributes:
+      label: 완료 기준
+      placeholder: |
+        - [ ] 
+        - [ ] 
+    validations:
+      required: true
+
+  - type: textarea
+    id: test
+    attributes:
+      label: 검증 방법
+      placeholder: 실행할 명령어 또는 확인 방법
+    validations:
+      required: false
