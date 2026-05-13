@@ -8,4 +8,4 @@ data:
   DATABASE_USER: "kosa"
   DATABASE_DB_NAME: "employees"
   AWS_DEFAULT_REGION: "ap-northeast-2"
-  PHOTOS_BUCKET: "TODO"
+  PHOTOS_BUCKET: "flaskapp-proddata-kosa-project-team3-snow-lai9z"
