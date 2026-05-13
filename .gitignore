@@ -1,0 +1,17 @@
+# Claude Code
+CLAUDE.md
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+.terraform.lock.hcl
+
+# Helm
+helm/*/charts/
+
+# Secrets / Env
+.env
+*.pem
+*.key
