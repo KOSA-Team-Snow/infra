@@ -19,20 +19,8 @@ spec:
           imagePullPolicy: Always
           ports:
             - containerPort: 80
-          env:
-            # --- ConfigMap으로 교체 예정 (Day 5) ---
-            - name: PHOTOS_BUCKET
-              value: "TODO"
-            - name: DATABASE_HOST
-              value: "172.16.43.160"
-            - name: DATABASE_USER
-              value: "kosa"
-            - name: DATABASE_DB_NAME
-              value: "employees"
-            - name: AWS_DEFAULT_REGION
-              value: "ap-northeast-2"
-            # --- Secret으로 교체 예정 (Day 5) ---
-            - name: DATABASE_PASSWORD
-              value: "TODO"
-            - name: FLASK_SECRET
-              value: "TODO"
+          envFrom:
+            - configMapRef:
+                name: flaskapp-config
+            - secretRef:
+                name: flaskapp-secret
