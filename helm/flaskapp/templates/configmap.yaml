@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-config
+  namespace: {{ .Release.Namespace }}
+data:
+  DATABASE_HOST: {{ .Values.config.DATABASE_HOST | quote }}
+  DATABASE_USER: {{ .Values.config.DATABASE_USER | quote }}
+  DATABASE_DB_NAME: {{ .Values.config.DATABASE_DB_NAME | quote }}
+  AWS_DEFAULT_REGION: {{ .Values.config.AWS_DEFAULT_REGION | quote }}
+  PHOTOS_BUCKET: {{ .Values.config.PHOTOS_BUCKET | quote }}
