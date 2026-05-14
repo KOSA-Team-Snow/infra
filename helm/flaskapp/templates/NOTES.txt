@@ -1,0 +1,5 @@
+FlaskApp deployed successfully.
+
+  Namespace : {{ .Release.Namespace }}
+  Release   : {{ .Release.Name }}
+  Ingress   : http://{{ .Values.ingress.host }}
