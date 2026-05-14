@@ -1,0 +1,10 @@
+region    = "ap-northeast-2"
+dr_active = false
+vpc_cidr  = "10.20.0.0/16"
+azs       = ["ap-northeast-2a", "ap-northeast-2c"]
+
+default_tags = {
+  Project     = "kosa-project-team3"
+  Environment = "dr"
+  ManagedBy   = "terraform"
+}
