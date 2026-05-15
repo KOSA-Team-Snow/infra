@@ -10,6 +10,7 @@ CLAUDE.md
 
 # Helm
 helm/*/charts/
+helm/*/values-*.yaml
 
 # Secrets / Env
 .env
