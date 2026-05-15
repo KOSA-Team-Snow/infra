@@ -1,0 +1,69 @@
+all:
+  vars:
+    ansible_user: ${cloud_init_user}
+    ansible_ssh_private_key_file: ${ssh_private_key}
+    ansible_python_interpreter: /usr/bin/python3
+    kubernetes_api_vip: ${kubernetes_api_vip}
+  hosts:
+%{ for name, vm in vms ~}
+    ${name}:
+      ansible_host: ${vm.ip}
+      vm_id: ${vm.vm_id}
+      proxmox_node: ${vm.node_name}
+      vlan_id: ${vm.vlan_id}
+%{ endfor ~}
+  children:
+    k8s:
+      children:
+        control_plane:
+        worker:
+    control_plane:
+      hosts:
+%{ for name, vm in vms ~}
+%{ if contains(vm.ansible_groups, "control_plane") ~}
+        ${name}:
+%{ endif ~}
+%{ endfor ~}
+    worker:
+      hosts:
+%{ for name, vm in vms ~}
+%{ if contains(vm.ansible_groups, "worker") ~}
+        ${name}:
+%{ endif ~}
+%{ endfor ~}
+    load_balancer:
+      hosts:
+%{ for name, vm in vms ~}
+%{ if contains(vm.ansible_groups, "load_balancer") ~}
+        ${name}:
+%{ endif ~}
+%{ endfor ~}
+    bastion:
+      hosts:
+%{ for name, vm in vms ~}
+%{ if contains(vm.ansible_groups, "bastion") ~}
+        ${name}:
+%{ endif ~}
+%{ endfor ~}
+    monitoring:
+      hosts:
+%{ for name, vm in vms ~}
+%{ if contains(vm.ansible_groups, "monitoring") ~}
+        ${name}:
+%{ endif ~}
+%{ endfor ~}
+    argocd:
+      hosts:
+%{ for name, vm in vms ~}
+%{ if contains(vm.ansible_groups, "argocd") ~}
+        ${name}:
+%{ endif ~}
+%{ endfor ~}
+    database:
+      hosts:
+%{ for name, vm in vms ~}
+%{ if contains(vm.ansible_groups, "database") ~}
+        ${name}:
+%{ endif ~}
+%{ endfor ~}
+
