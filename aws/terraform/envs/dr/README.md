@@ -19,7 +19,7 @@ VPN, VPC endpoints, RDS, DMS, Route 53, EKS, and ALB activation are follow-up ph
 ## Usage
 
 ```bash
-cd infra/terraform/aws-dr/envs/dr
+cd infra/aws/terraform/envs/dr
 AWS_PROFILE=kosa-team-snow AWS_REGION=ap-northeast-2 terraform init
 AWS_PROFILE=kosa-team-snow AWS_REGION=ap-northeast-2 terraform validate
 AWS_PROFILE=kosa-team-snow AWS_REGION=ap-northeast-2 terraform plan -var="dr_active=false"
