@@ -21,10 +21,6 @@ config:
   AWS_DEFAULT_REGION: "ap-northeast-2"
   PHOTOS_BUCKET: "flaskapp-proddata-kosa-project-team3-snow-lai9z"
 
-secret:
-  DATABASE_PASSWORD: "<CHANGE_ME>"
-  FLASK_SECRET: "<CHANGE_ME>"
-
 resources:
   requests:
     memory: "128Mi"
