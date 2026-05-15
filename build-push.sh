@@ -2,8 +2,10 @@
 set -e
 
 # ── 경로 설정 (스크립트 위치 기준) ────────────────────
+# infra 레포와 Flaskapp 레포가 같은 부모 폴더에 있다고 가정합니다.
+# 다른 경로에 클론한 경우: FLASKAPP_DIR=/path/to/Flaskapp ./build-push.sh
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FLASKAPP_DIR="${SCRIPT_DIR}/../Flaskapp"
+FLASKAPP_DIR="${FLASKAPP_DIR:-${SCRIPT_DIR}/../Flaskapp}"
 VALUES_FILE="${SCRIPT_DIR}/helm/flaskapp/values.yaml"
 
 # ── 설정 ──────────────────────────────────────────────
