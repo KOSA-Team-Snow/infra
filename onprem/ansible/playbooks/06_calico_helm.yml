@@ -1,0 +1,207 @@
+---
+- name: Install Calico CNI from bastion with Helm
+  hosts: bastion
+  become: true
+  gather_facts: false
+
+  vars:
+    helm_version: "v3.15.4"
+    helm_archive: "helm-{{ helm_version }}-linux-amd64.tar.gz"
+    helm_download_url: "https://get.helm.sh/{{ helm_archive }}"
+    kubectl_download_url: "https://dl.k8s.io/release/{{ kubernetes_cluster_version }}/bin/linux/amd64/kubectl"
+    bastion_home: "/home/{{ ansible_user }}"
+    bastion_kubeconfig_dir: "{{ bastion_home }}/.kube"
+    bastion_kubeconfig_path: "{{ bastion_kubeconfig_dir }}/config"
+    calico_namespace: tigera-operator
+    calico_release_name: calico
+    calico_chart_version: "{{ calico_version }}"
+    calico_operator_crds_url: "https://raw.githubusercontent.com/projectcalico/calico/{{ calico_chart_version }}/manifests/operator-crds.yaml"
+    calico_values_remote_path: /tmp/calico-values.yml
+
+  tasks:
+    - name: Install bastion package prerequisites
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - tar
+        state: present
+        update_cache: true
+        lock_timeout: 300
+
+    - name: Check kubectl binary
+      ansible.builtin.command: kubectl version --client=true
+      register: kubectl_version_check
+      changed_when: false
+      failed_when: false
+
+    - name: Download kubectl when missing
+      ansible.builtin.get_url:
+        url: "{{ kubectl_download_url }}"
+        dest: /usr/local/bin/kubectl
+        owner: root
+        group: root
+        mode: "0755"
+      when: kubectl_version_check.rc != 0
+
+    - name: Check Helm binary
+      ansible.builtin.command: helm version --short
+      register: helm_version_check
+      changed_when: false
+      failed_when: false
+
+    - name: Download Helm archive when missing
+      ansible.builtin.get_url:
+        url: "{{ helm_download_url }}"
+        dest: "/tmp/{{ helm_archive }}"
+        mode: "0644"
+      when: helm_version_check.rc != 0
+
+    - name: Extract Helm archive when missing
+      ansible.builtin.unarchive:
+        src: "/tmp/{{ helm_archive }}"
+        dest: /tmp
+        remote_src: true
+      when: helm_version_check.rc != 0
+
+    - name: Install Helm binary when missing
+      ansible.builtin.copy:
+        src: /tmp/linux-amd64/helm
+        dest: /usr/local/bin/helm
+        owner: root
+        group: root
+        mode: "0755"
+        remote_src: true
+      when: helm_version_check.rc != 0
+
+    - name: Read admin kubeconfig from k8s-cp-1
+      ansible.builtin.slurp:
+        src: /etc/kubernetes/admin.conf
+      register: control_plane_admin_kubeconfig
+      delegate_to: k8s-cp-1
+
+    - name: Create bastion kubeconfig directory
+      ansible.builtin.file:
+        path: "{{ bastion_kubeconfig_dir }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0700"
+
+    - name: Install bastion kubeconfig that targets Kubernetes API VIP
+      ansible.builtin.copy:
+        dest: "{{ bastion_kubeconfig_path }}"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0600"
+        content: >-
+          {{
+            (control_plane_admin_kubeconfig.content | b64decode)
+            | regex_replace('server: https://[^\\n]+:6443', 'server: https://' ~ kubernetes_api_vip ~ ':' ~ (kubernetes_api_port | string))
+          }}
+
+    - name: Verify bastion can reach Kubernetes API VIP
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ bastion_kubeconfig_path }} get --raw=/readyz?verbose
+      become: false
+      register: bastion_api_ready
+      retries: 12
+      delay: 5
+      until: bastion_api_ready.rc == 0
+      changed_when: false
+
+    - name: Copy Calico Helm values to bastion
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../files/calico-values.yml"
+        dest: "{{ calico_values_remote_path }}"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0644"
+
+    - name: Add Project Calico Helm repository from bastion
+      ansible.builtin.command:
+        cmd: helm repo add projectcalico https://docs.tigera.io/calico/charts
+      become: false
+      register: calico_repo_add
+      changed_when: "'has been added' in calico_repo_add.stdout"
+      failed_when:
+        - calico_repo_add.rc != 0
+        - "'already exists' not in calico_repo_add.stderr"
+      environment:
+        KUBECONFIG: "{{ bastion_kubeconfig_path }}"
+
+    - name: Update Helm repositories from bastion
+      ansible.builtin.command:
+        cmd: helm repo update
+      become: false
+      changed_when: false
+      environment:
+        KUBECONFIG: "{{ bastion_kubeconfig_path }}"
+
+    - name: Create Tigera operator namespace
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ bastion_kubeconfig_path }} create namespace {{ calico_namespace }}
+      become: false
+      register: tigera_namespace
+      changed_when: "'created' in tigera_namespace.stdout"
+      failed_when:
+        - tigera_namespace.rc != 0
+        - "'AlreadyExists' not in tigera_namespace.stderr"
+
+    - name: Install Calico CRDs from bastion
+      ansible.builtin.command:
+        cmd: "kubectl --request-timeout=5m --kubeconfig={{ bastion_kubeconfig_path }} apply --server-side --force-conflicts -f {{ calico_operator_crds_url }}"
+      become: false
+      register: calico_crds
+      retries: 3
+      delay: 20
+      until: calico_crds.rc == 0
+      changed_when: "'created' in calico_crds.stdout or 'configured' in calico_crds.stdout or 'serverside-applied' in calico_crds.stdout"
+
+    - name: Install or upgrade Tigera operator and Calico installation from bastion
+      ansible.builtin.command:
+        cmd: >-
+          helm upgrade --install {{ calico_release_name }} projectcalico/tigera-operator
+          --version {{ calico_chart_version }}
+          --namespace {{ calico_namespace }}
+          -f {{ calico_values_remote_path }}
+      become: false
+      environment:
+        KUBECONFIG: "{{ bastion_kubeconfig_path }}"
+
+    - name: Wait for calico-system namespace from bastion
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ bastion_kubeconfig_path }} get namespace calico-system
+      become: false
+      register: calico_system_namespace
+      retries: 60
+      delay: 5
+      until: calico_system_namespace.rc == 0
+      changed_when: false
+
+    - name: Wait for Calico pods to be created from bastion
+      ansible.builtin.shell: |
+        kubectl --kubeconfig={{ bastion_kubeconfig_path }} -n calico-system get pods --no-headers 2>/dev/null | wc -l
+      become: false
+      register: calico_pod_count
+      retries: 60
+      delay: 5
+      until: (calico_pod_count.stdout | int) > 0
+      changed_when: false
+
+    - name: Wait for Calico pods from bastion
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ bastion_kubeconfig_path }} -n calico-system wait --for=condition=Ready pod --all --timeout=10m
+      become: false
+      changed_when: false
+
+    - name: Show Kubernetes nodes after Calico install
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ bastion_kubeconfig_path }} get nodes -o wide
+      become: false
+      register: kubernetes_nodes_after_calico
+      changed_when: false
+
+    - name: Print Kubernetes nodes after Calico install
+      ansible.builtin.debug:
+        var: kubernetes_nodes_after_calico.stdout_lines

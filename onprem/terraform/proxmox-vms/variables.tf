@@ -142,8 +142,8 @@ variable "vms" {
       gateway        = "172.16.43.1"
       vlan_id        = 30
       cores          = 4
-      memory_mb      = 4096
-      disk_gb        = 40
+      memory_mb      = 8192
+      disk_gb        = 80
       ansible_groups = ["k8s", "worker", "app_worker"]
     }
     k8s-worker-2 = {
@@ -154,8 +154,8 @@ variable "vms" {
       gateway        = "172.16.43.1"
       vlan_id        = 30
       cores          = 4
-      memory_mb      = 4096
-      disk_gb        = 40
+      memory_mb      = 8192
+      disk_gb        = 80
       ansible_groups = ["k8s", "worker", "app_worker"]
     }
     k8s-worker-3 = {
@@ -166,8 +166,8 @@ variable "vms" {
       gateway        = "172.16.43.1"
       vlan_id        = 30
       cores          = 4
-      memory_mb      = 4096
-      disk_gb        = 40
+      memory_mb      = 8192
+      disk_gb        = 80
       ansible_groups = ["k8s", "worker", "infra_worker"]
     }
     lb-1 = {
