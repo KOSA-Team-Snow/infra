@@ -1,0 +1,35 @@
+---
+- name: Precheck Kubernetes VMs
+  hosts: k8s
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Stop apt background services
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+      loop:
+        - unattended-upgrades
+        - apt-daily.timer
+        - apt-daily-upgrade.timer
+        - apt-daily.service
+        - apt-daily-upgrade.service
+      failed_when: false
+
+    - name: Fix interrupted dpkg state
+      ansible.builtin.command: dpkg --configure -a
+      register: dpkg_result
+      retries: 5
+      delay: 10
+      until: dpkg_result.rc == 0
+      changed_when: false
+
+    - name: Safe apt update
+      ansible.builtin.apt:
+        update_cache: true
+        lock_timeout: 300
+      register: apt_result
+      retries: 10
+      delay: 10
+      until: apt_result is succeeded

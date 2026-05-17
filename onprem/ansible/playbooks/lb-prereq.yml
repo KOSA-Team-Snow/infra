@@ -1,0 +1,23 @@
+---
+- name: Prepare load balancer nodes
+  hosts: load_balancer
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Install HAProxy and Keepalived packages
+      ansible.builtin.apt:
+        name:
+          - haproxy
+          - keepalived
+        state: present
+        update_cache: true
+
+    - name: Enable HAProxy and Keepalived
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: true
+      loop:
+        - haproxy
+        - keepalived
+

@@ -1,0 +1,105 @@
+---
+- name: Configure Kubernetes API load balancers
+  hosts: load_balancer
+  become: true
+  gather_facts: true
+
+  vars:
+    kubernetes_api_port: 6443
+    keepalived_interface: "{{ ansible_default_ipv4.interface }}"
+    keepalived_virtual_router_id: 43
+    keepalived_auth_pass: "k8sapi43"
+    keepalived_vip_cidr: 24
+
+  tasks:
+    - name: Render HAProxy configuration for Kubernetes API
+      ansible.builtin.copy:
+        dest: /etc/haproxy/haproxy.cfg
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          global
+              log /dev/log local0
+              log /dev/log local1 notice
+              chroot /var/lib/haproxy
+              stats socket /run/haproxy/admin.sock mode 660 level admin
+              stats timeout 30s
+              user haproxy
+              group haproxy
+              daemon
+
+          defaults
+              log global
+              mode tcp
+              option tcplog
+              option dontlognull
+              timeout connect 10s
+              timeout client 1m
+              timeout server 1m
+
+          frontend kubernetes_api
+              bind *:{{ kubernetes_api_port }}
+              default_backend kubernetes_control_plane
+
+          backend kubernetes_control_plane
+              balance roundrobin
+              option tcp-check
+          {% for host in groups["control_plane"] %}
+              server {{ host }} {{ hostvars[host].ansible_host }}:{{ kubernetes_api_port }} check
+          {% endfor %}
+      notify: Restart haproxy
+
+    - name: Render Keepalived configuration for Kubernetes API VIP
+      ansible.builtin.copy:
+        dest: /etc/keepalived/keepalived.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          vrrp_script chk_haproxy {
+              script "pidof haproxy"
+              interval 2
+              weight 2
+          }
+
+          vrrp_instance VI_K8S_API {
+              state {{ "MASTER" if inventory_hostname == groups["load_balancer"][0] else "BACKUP" }}
+              interface {{ keepalived_interface }}
+              virtual_router_id {{ keepalived_virtual_router_id }}
+              priority {{ 110 if inventory_hostname == groups["load_balancer"][0] else 100 }}
+              advert_int 1
+              authentication {
+                  auth_type PASS
+                  auth_pass {{ keepalived_auth_pass }}
+              }
+              virtual_ipaddress {
+                  {{ kubernetes_api_vip }}/{{ keepalived_vip_cidr }} dev {{ keepalived_interface }}
+              }
+              track_script {
+                  chk_haproxy
+              }
+          }
+      notify: Restart keepalived
+
+    - name: Enable and start HAProxy and Keepalived
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+      loop:
+        - haproxy
+        - keepalived
+
+  handlers:
+    - name: Restart haproxy
+      ansible.builtin.systemd:
+        name: haproxy
+        state: restarted
+        enabled: true
+
+    - name: Restart keepalived
+      ansible.builtin.systemd:
+        name: keepalived
+        state: restarted
+        enabled: true
