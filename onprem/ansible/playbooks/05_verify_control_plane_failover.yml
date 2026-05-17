@@ -1,0 +1,55 @@
+---
+- name: Verify Kubernetes API VIP and control plane kube-vip placement
+  hosts: control_plane
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Check kube-vip static pod manifest exists
+      ansible.builtin.stat:
+        path: /etc/kubernetes/manifests/kube-vip.yaml
+      register: kube_vip_manifest
+
+    - name: Fail when kube-vip manifest is missing
+      ansible.builtin.fail:
+        msg: "{{ inventory_hostname }} is missing /etc/kubernetes/manifests/kube-vip.yaml"
+      when: not kube_vip_manifest.stat.exists
+
+    - name: Check kube-vip container is running
+      ansible.builtin.shell: "crictl ps --name kube-vip -q"
+      register: kube_vip_running
+      changed_when: false
+      failed_when: kube_vip_running.stdout | length == 0
+
+    - name: Check local kubeconfig for ansible user
+      ansible.builtin.stat:
+        path: "/home/{{ ansible_user }}/.kube/config"
+      register: user_kubeconfig
+
+    - name: Fail when user kubeconfig is missing
+      ansible.builtin.fail:
+        msg: "{{ inventory_hostname }} is missing /home/{{ ansible_user }}/.kube/config"
+      when: not user_kubeconfig.stat.exists
+
+- name: Verify Kubernetes API VIP endpoint
+  hosts: k8s-cp-1
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Verify API VIP readiness
+      ansible.builtin.command:
+        cmd: "kubectl --kubeconfig=/etc/kubernetes/admin.conf --server=https://{{ kubernetes_api_vip }}:{{ kubernetes_api_port }} --request-timeout=10s get --raw=/readyz"
+      changed_when: false
+
+    - name: Show current VIP owner from control plane nodes
+      ansible.builtin.command:
+        cmd: "ip -br addr"
+      register: control_plane_addresses
+      changed_when: false
+      delegate_to: "{{ item }}"
+      loop: "{{ groups['control_plane'] }}"
+
+    - name: Print control plane addresses
+      ansible.builtin.debug:
+        msg: "{{ control_plane_addresses.results | map(attribute='stdout_lines') | list }}"

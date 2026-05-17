@@ -1,0 +1,29 @@
+---
+- name: Reset Kubernetes state on join target nodes
+  hosts: control_plane:!k8s-cp-1,worker
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Reset kubeadm state
+      ansible.builtin.command: kubeadm reset -f
+      changed_when: true
+      failed_when: false
+
+    - name: Remove Kubernetes state directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/kubernetes
+        - /var/lib/etcd
+        - /var/lib/kubelet/pki
+        - /var/lib/cni
+        - /etc/cni/net.d
+
+    - name: Restart kubelet
+      ansible.builtin.systemd:
+        name: kubelet
+        state: restarted
+        enabled: true
+      failed_when: false

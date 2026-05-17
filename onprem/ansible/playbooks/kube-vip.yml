@@ -1,0 +1,89 @@
+---
+- name: Install kube-vip static pod manifest for control plane VIP
+  hosts: control_plane
+  become: true
+  gather_facts: true
+
+  vars:
+    kube_vip_version: "v0.8.9"
+    kube_vip_interface: "{{ ansible_facts['default_ipv4']['interface'] }}"
+    kube_vip_port: "6443"
+    kube_vip_subnet: "/32"
+    kube_vip_kubeconfig: /etc/kubernetes/super-admin.conf
+
+  tasks:
+    - name: Ensure Kubernetes static pod manifest directory exists
+      ansible.builtin.file:
+        path: /etc/kubernetes/manifests
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install kube-vip static pod manifest
+      ansible.builtin.copy:
+        dest: /etc/kubernetes/manifests/kube-vip.yaml
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: kube-vip
+            namespace: kube-system
+          spec:
+            containers:
+              - name: kube-vip
+                image: ghcr.io/kube-vip/kube-vip:{{ kube_vip_version }}
+                imagePullPolicy: IfNotPresent
+                args:
+                  - manager
+                  - --k8sConfigPath={{ kube_vip_kubeconfig }}
+                env:
+                  - name: vip_arp
+                    value: "true"
+                  - name: port
+                    value: "{{ kube_vip_port }}"
+                  - name: vip_interface
+                    value: "{{ kube_vip_interface }}"
+                  - name: vip_subnet
+                    value: "{{ kube_vip_subnet }}"
+                  - name: cp_enable
+                    value: "true"
+                  - name: cp_namespace
+                    value: kube-system
+                  - name: vip_ddns
+                    value: "false"
+                  - name: svc_enable
+                    value: "false"
+                  - name: vip_leaderelection
+                    value: "true"
+                  - name: vip_leaseduration
+                    value: "5"
+                  - name: vip_renewdeadline
+                    value: "3"
+                  - name: vip_retryperiod
+                    value: "1"
+                  - name: address
+                    value: "{{ kubernetes_api_vip }}"
+                securityContext:
+                  capabilities:
+                    add:
+                      - NET_ADMIN
+                      - NET_RAW
+                      - SYS_TIME
+                volumeMounts:
+                  - mountPath: "{{ kube_vip_kubeconfig }}"
+                    name: kubeconfig
+                    readOnly: true
+            hostAliases:
+              - ip: 127.0.0.1
+                hostnames:
+                  - kubernetes
+            hostNetwork: true
+            volumes:
+              - name: kubeconfig
+                hostPath:
+                  path: {{ kube_vip_kubeconfig }}
+                  type: File

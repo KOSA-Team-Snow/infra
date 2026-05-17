@@ -1,0 +1,225 @@
+---
+- name: Generate kubeadm join commands
+  hosts: k8s-cp-1
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Verify Kubernetes API VIP is reachable before creating join commands
+      ansible.builtin.command:
+        cmd: "kubectl --kubeconfig=/etc/kubernetes/admin.conf --server=https://{{ kubernetes_api_vip }}:{{ kubernetes_api_port }} --request-timeout=10s get --raw=/readyz"
+      changed_when: false
+
+    - name: Create worker join command
+      ansible.builtin.command: kubeadm token create --print-join-command
+      register: worker_join
+      changed_when: false
+      no_log: "{{ hide_sensitive_logs | default(true) }}"
+
+    - name: Upload control plane certificates and read certificate key
+      ansible.builtin.command: kubeadm init phase upload-certs --upload-certs
+      register: cert_key_raw
+      changed_when: false
+      no_log: "{{ hide_sensitive_logs | default(true) }}"
+
+    - name: Store join command facts
+      ansible.builtin.set_fact:
+        worker_join_cmd: "{{ worker_join.stdout }}"
+        control_plane_certificate_key: "{{ cert_key_raw.stdout_lines[-1] }}"
+      no_log: "{{ hide_sensitive_logs | default(true) }}"
+
+- name: Join additional control planes
+  hosts: control_plane:!k8s-cp-1
+  become: true
+  gather_facts: true
+  serial: 1
+
+  vars:
+    kube_vip_interface: "{{ ansible_facts['default_ipv4']['interface'] }}"
+    kube_vip_kubeconfig: /etc/kubernetes/admin.conf
+
+  tasks:
+    - name: Check for partial control plane join state
+      ansible.builtin.stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: control_plane_kubelet_conf
+
+    - name: Check for completed control plane join state
+      ansible.builtin.stat:
+        path: /etc/kubernetes/admin.conf
+      register: control_plane_admin_conf
+
+    - name: Fail when node has partial control plane join state
+      ansible.builtin.fail:
+        msg: >-
+          {{ inventory_hostname }} has /etc/kubernetes/kubelet.conf but no admin.conf.
+          Run kubeadm reset on this node and remove any stale etcd learner member before retrying.
+      when:
+        - control_plane_kubelet_conf.stat.exists
+        - not control_plane_admin_conf.stat.exists
+
+    - name: Join control plane node
+      ansible.builtin.command:
+        cmd: >-
+          {{ hostvars['k8s-cp-1']['worker_join_cmd'] }}
+          --control-plane
+          --apiserver-advertise-address {{ ansible_host }}
+          --certificate-key {{ hostvars['k8s-cp-1']['control_plane_certificate_key'] }}
+      args:
+        creates: /etc/kubernetes/admin.conf
+      no_log: "{{ hide_sensitive_logs | default(true) }}"
+
+    - name: Create kubeconfig directory for ansible user
+      ansible.builtin.file:
+        path: "/home/{{ ansible_user }}/.kube"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0700"
+
+    - name: Copy admin kubeconfig for ansible user
+      ansible.builtin.copy:
+        src: /etc/kubernetes/admin.conf
+        dest: "/home/{{ ansible_user }}/.kube/config"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0600"
+        remote_src: true
+
+    - name: Ensure Kubernetes static pod manifest directory exists
+      ansible.builtin.file:
+        path: /etc/kubernetes/manifests
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install kube-vip static pod manifest on joined control plane
+      ansible.builtin.copy:
+        dest: /etc/kubernetes/manifests/kube-vip.yaml
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: kube-vip
+            namespace: kube-system
+          spec:
+            containers:
+              - name: kube-vip
+                image: ghcr.io/kube-vip/kube-vip:{{ kube_vip_version }}
+                imagePullPolicy: IfNotPresent
+                args:
+                  - manager
+                  - --k8sConfigPath={{ kube_vip_kubeconfig }}
+                env:
+                  - name: vip_arp
+                    value: "true"
+                  - name: port
+                    value: "{{ kubernetes_api_port | string }}"
+                  - name: vip_interface
+                    value: "{{ kube_vip_interface }}"
+                  - name: vip_subnet
+                    value: "/32"
+                  - name: cp_enable
+                    value: "true"
+                  - name: cp_namespace
+                    value: kube-system
+                  - name: svc_enable
+                    value: "false"
+                  - name: vip_leaderelection
+                    value: "true"
+                  - name: vip_leaseduration
+                    value: "15"
+                  - name: vip_renewdeadline
+                    value: "10"
+                  - name: vip_retryperiod
+                    value: "2"
+                  - name: address
+                    value: "{{ kubernetes_api_vip }}"
+                securityContext:
+                  capabilities:
+                    add:
+                      - NET_ADMIN
+                      - NET_RAW
+                      - SYS_TIME
+                volumeMounts:
+                  - mountPath: "{{ kube_vip_kubeconfig }}"
+                    name: kubeconfig
+                    readOnly: true
+            hostAliases:
+              - ip: 127.0.0.1
+                hostnames:
+                  - kubernetes
+            hostNetwork: true
+            volumes:
+              - name: kubeconfig
+                hostPath:
+                  path: {{ kube_vip_kubeconfig }}
+                  type: File
+
+    - name: Restart kubelet to load kube-vip static pod on joined control plane
+      ansible.builtin.systemd:
+        name: kubelet
+        state: restarted
+        enabled: true
+
+    - name: Recreate kube-vip static pod container on joined control plane
+      ansible.builtin.shell: |
+        crictl ps -a --name kube-vip -q | xargs -r crictl stop || true
+        crictl ps -a --name kube-vip -q | xargs -r crictl rm || true
+      changed_when: true
+
+    - name: Wait for kube-vip container on joined control plane
+      ansible.builtin.shell: "crictl ps --name kube-vip -q"
+      register: joined_kube_vip_running
+      retries: 20
+      delay: 3
+      until: joined_kube_vip_running.stdout | length > 0
+      changed_when: false
+
+- name: Join worker nodes
+  hosts: worker
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Check for partial worker join state
+      ansible.builtin.stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: worker_kubelet_conf
+
+    - name: Join worker node
+      ansible.builtin.command:
+        cmd: "{{ hostvars['k8s-cp-1']['worker_join_cmd'] }}"
+      args:
+        creates: /etc/kubernetes/kubelet.conf
+      no_log: "{{ hide_sensitive_logs | default(true) }}"
+
+    - name: Wait for worker node registration
+      ansible.builtin.command:
+        cmd: "kubectl --kubeconfig=/etc/kubernetes/admin.conf get node {{ inventory_hostname }}"
+      delegate_to: k8s-cp-1
+      register: worker_node_check
+      changed_when: false
+      retries: 30
+      delay: 5
+      until: worker_node_check.rc == 0
+
+- name: Verify Kubernetes nodes
+  hosts: k8s-cp-1
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Show Kubernetes node list
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes -o wide
+      register: kubernetes_nodes
+      changed_when: false
+
+    - name: Print Kubernetes node list
+      ansible.builtin.debug:
+        var: kubernetes_nodes.stdout_lines
