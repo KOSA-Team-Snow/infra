@@ -15,4 +15,4 @@ helm/*/values-*.yaml
 .env
 *.pem
 *.key
-*/DS_Store
+*.DS_Store
