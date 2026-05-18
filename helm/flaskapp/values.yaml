@@ -2,7 +2,7 @@ replicaCount: 2
 
 image:
   repository: 080252689380.dkr.ecr.ap-northeast-2.amazonaws.com/flaskapp
-  tag: latest
+  tag: "d457c7e"
   pullPolicy: IfNotPresent
 
 service:
