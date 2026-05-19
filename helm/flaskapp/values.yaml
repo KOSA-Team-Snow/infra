@@ -2,7 +2,7 @@ replicaCount: 2
 
 image:
   repository: 080252689380.dkr.ecr.ap-northeast-2.amazonaws.com/flaskapp
-  tag: "d457c7e"
+  tag: 'd457c7e'
   pullPolicy: IfNotPresent
 
 imagePullSecrets:
@@ -13,12 +13,12 @@ ecrSecretRefresh:
   secretName: ecr-regcred
   registry: 080252689380.dkr.ecr.ap-northeast-2.amazonaws.com
   region: ap-northeast-2
-  schedule: "0 */6 * * *"
+  schedule: '0 */6 * * *'
   awsCredentialsSecretName: ecr-refresh-aws-credentials
   serviceAccountName: ecr-secret-refresher
   image:
     repository: alpine/k8s
-    tag: "1.30.14"
+    tag: '1.30.14'
     pullPolicy: IfNotPresent
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 3
@@ -31,19 +31,19 @@ service:
 ingress:
   enabled: true
   className: nginx
-  host: flaskapp.onprem.local
+  host: flaskapp.team.snow.internal
 
 config:
-  DATABASE_HOST: "172.16.43.160"
-  DATABASE_USER: "flaskapp"
-  DATABASE_DB_NAME: "flaskapp"
-  AWS_DEFAULT_REGION: "ap-northeast-2"
-  PHOTOS_BUCKET: "flaskapp-proddata-kosa-project-team3-snow-lai9z"
+  DATABASE_HOST: '172.16.43.160'
+  DATABASE_USER: 'flaskapp'
+  DATABASE_DB_NAME: 'flaskapp'
+  AWS_DEFAULT_REGION: 'ap-northeast-2'
+  PHOTOS_BUCKET: 'flaskapp-proddata-kosa-project-team3-snow-lai9z'
 
 resources:
   requests:
-    memory: "128Mi"
-    cpu: "100m"
+    memory: '128Mi'
+    cpu: '100m'
   limits:
-    memory: "256Mi"
-    cpu: "200m"
+    memory: '256Mi'
+    cpu: '200m'
