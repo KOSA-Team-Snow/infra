@@ -18,7 +18,7 @@ ecrSecretRefresh:
   serviceAccountName: ecr-secret-refresher
   image:
     repository: alpine/k8s
-    tag: "1.30.1"
+    tag: "1.30.14"
     pullPolicy: IfNotPresent
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 3
